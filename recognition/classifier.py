@@ -154,29 +154,38 @@ class CharacterClassifier:
             
         print(f"[CNN Classifier] Auto-configured {num_classes} classes mapping: {self.class_labels[:5]}...")
 
-    def preprocess(self, canvas: np.ndarray, pad: int = 15) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def preprocess(self, input_data: np.ndarray, pad: int = 15) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Tiền xử lý ảnh Canvas runtime (640x480 BGR nền trắng nét đen) thành tensor (1, 64, 64, 1) nền đen nét trắng chuẩn hóa [0, 1].
+        Tiền xử lý ảnh Canvas runtime hoặc ảnh 64x64 nhị phân từ render_trajectory thành tensor (1, 64, 64, 1).
         
         Trả về:
-            - tensor: (1, 64, 64, 1) float32 trong dải [0, 1] (None nếu canvas trống).
+            - tensor: (1, 64, 64, 1) float32 trong dải [0, 1] (None nếu canvas rỗng).
             - debug_img: (64, 64) uint8 [0, 255] nét chữ trên nền đen (để hiển thị debug window).
         """
-        if canvas is None or not isinstance(canvas, np.ndarray) or canvas.size == 0:
+        if input_data is None or not isinstance(input_data, np.ndarray) or input_data.size == 0:
             return None, None
             
+        # Nếu đã là ảnh 64x64 nhị phân nét trắng nền đen (từ render_trajectory_to_64x64)
+        if input_data.shape == (64, 64):
+            if cv2.countNonZero(input_data) == 0:
+                return None, None
+            normalized = input_data.astype(np.float32) / 255.0
+            tensor = np.expand_dims(normalized, axis=(0, -1))
+            return tensor, input_data
+
+        # Ngược lại: Xử lý ảnh Canvas 640x480 BGR nền trắng nét đen
         # 1. Chuyển BGR sang Grayscale
-        gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(input_data, cv2.COLOR_BGR2GRAY) if len(input_data.shape) == 3 else input_data
         
         # 2. Binary Threshold Inverse: Nền trắng (255) -> 0 (Đen), Nét đen (0) -> 255 (Trắng)
         _, mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
         
-        # 3. Kiểm tra canvas có nét vẽ hay không (Empty Canvas Check)
+        # 3. Kiểm tra canvas có nét vẽ hay không
         pts = cv2.findNonZero(mask)
         if pts is None:
             return None, None
             
-        # 4. Xác định Bounding Box của vùng chữ viết và thêm Padding
+        # 4. Bounding Box + Padding
         x, y, w, h = cv2.boundingRect(pts)
         h_img, w_img = mask.shape
         
@@ -190,33 +199,32 @@ class CharacterClassifier:
         if ch == 0 or cw == 0:
             return None, None
             
-        # 5. Bảo toàn tỷ lệ khía cạnh (Preserve aspect ratio) bằng cách đặt crop vào khung hình vuông
+        # 5. Squarify bảo toàn aspect ratio
         max_dim = max(ch, cw)
         square_img = np.zeros((max_dim, max_dim), dtype=np.uint8)
         off_y = (max_dim - ch) // 2
         off_x = (max_dim - cw) // 2
         square_img[off_y:off_y + ch, off_x:off_x + cw] = crop
         
-        # 6. Resize về kích thước chuẩn 64x64
+        # 6. Resize về 64x64
         resized = cv2.resize(square_img, (64, 64), interpolation=cv2.INTER_AREA)
         
-        # 7. Chuẩn hóa pixel về float32 dải 0.0 -> 1.0 và mở rộng chiều Batch & Channel
+        # 7. Chuẩn hóa pixel float32 [0.0, 1.0]
         normalized = resized.astype(np.float32) / 255.0
-        tensor = np.expand_dims(normalized, axis=(0, -1)) # Shape: (1, 64, 64, 1)
+        tensor = np.expand_dims(normalized, axis=(0, -1))
         
         return tensor, resized
 
-    def predict(self, canvas: np.ndarray) -> Tuple[Optional[str], float]:
+    def predict(self, input_data: np.ndarray, mode: Optional[str] = None, confidence_threshold: float = 40.0) -> Tuple[Optional[str], float]:
         """
-        Dự đoán chữ cái từ ảnh Canvas.
+        Dự đoán chữ cái từ ảnh Canvas hoặc ảnh 64x64 nhị phân.
         
         Trả về:
-            - character: Ký tự chữ cái viết hoa ('A' đến 'Z') hoặc None nếu canvas trống.
-            - confidence: Độ tin cậy dưới dạng phần trăm (ví dụ: 96.72). Trả về 0.0 nếu không dự đoán được.
+            - character: Ký tự được dự đoán ('A'-'Z', '0'-'9') hoặc None nếu rỗng / dưới ngưỡng tin cậy.
+            - confidence: Độ tin cậy dưới dạng phần trăm (ví dụ: 96.72).
         """
-        tensor, _ = self.preprocess(canvas)
+        tensor, _ = self.preprocess(input_data)
         
-        # Nếu canvas rỗng (không tìm thấy nét vẽ)
         if tensor is None:
             return None, 0.0
             
@@ -224,16 +232,36 @@ class CharacterClassifier:
             # 1. Chạy dự đoán từ CNN model
             preds = self.model.predict(tensor, verbose=0)[0]
             
-            # 2. Lấy chỉ số có xác suất cao nhất
-            class_idx = int(np.argmax(preds))
+            # 2. Lọc theo mode nếu mode được truyền vào ("LETTER" hoặc "NUMBER")
+            if mode is not None and len(self.class_labels) > 0:
+                if mode == "LETTER":
+                    valid_indices = [i for i, lbl in enumerate(self.class_labels) if lbl.isalpha()]
+                elif mode == "NUMBER":
+                    valid_indices = [i for i, lbl in enumerate(self.class_labels) if lbl.isdigit()]
+                else:
+                    valid_indices = list(range(len(self.class_labels)))
+                
+                if valid_indices:
+                    sub_preds = preds[valid_indices]
+                    best_sub_idx = int(np.argmax(sub_preds))
+                    class_idx = valid_indices[best_sub_idx]
+                else:
+                    class_idx = int(np.argmax(preds))
+            else:
+                class_idx = int(np.argmax(preds))
             
-            # 3. Map chỉ số (class_idx) sang ký tự chữ/số tương ứng từ danh sách nhãn (class_labels)
-            character = self.class_labels[class_idx] if class_idx < len(self.class_labels) else str(class_idx)
-            
-            # 4. Tính xác suất phần trăm
+            # 3. Tính độ tin cậy phần trăm
             confidence = round(float(preds[class_idx]) * 100.0, 2)
             
+            # 4. Kiểm tra ngưỡng tin cậy (Confidence Threshold)
+            if confidence < confidence_threshold:
+                print(f"[CNN Classifier] Discarded low confidence prediction: '{self.class_labels[class_idx]}' ({confidence:.2f}% < threshold {confidence_threshold}%)")
+                return None, confidence
+
+            character = self.class_labels[class_idx] if class_idx < len(self.class_labels) else str(class_idx)
             return character, confidence
+
         except Exception as e:
             print(f"[CNN Classifier Error] Lỗi trong quá trình predict: {e}")
             return None, 0.0
+
