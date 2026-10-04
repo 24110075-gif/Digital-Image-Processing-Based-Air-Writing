@@ -22,10 +22,13 @@ class GestureStabilizer:
     """
     Lớp ổn định cử chỉ bàn tay bằng majority voting trong cửa sổ N frames liên tiếp.
     Giúp chống nhiễu / jitter do MediaPipe nhận sai 1-2 frame lẻ.
+    Khi không có đa số rõ ràng, giữ nguyên gesture ổn định trước đó (sticky)
+    thay vì chuyển theo gesture thô mới nhất (tránh giật khi rút tay).
     """
     def __init__(self, window_size=5):
         self.window_size = window_size
         self.history = deque(maxlen=window_size)
+        self.last_stable = "IDLE"   # Giữ gesture ổn định cuối cùng
 
     def update(self, raw_gesture: str) -> str:
         self.history.append(raw_gesture)
@@ -35,11 +38,14 @@ class GestureStabilizer:
         most_common, count = counts.most_common(1)[0]
         # Cần đa số trong cửa sổ để chốt gesture
         if count >= (len(self.history) // 2 + 1):
+            self.last_stable = most_common
             return most_common
-        return self.history[-1]
+        # Không có đa số: giữ gesture ổn định trước đó thay vì jitter theo raw mới nhất
+        return self.last_stable
 
     def reset(self):
         self.history.clear()
+        self.last_stable = "IDLE"
 
 
 def classify_hand_gesture(hand_landmarks) -> str:
@@ -50,10 +56,6 @@ def classify_hand_gesture(hand_landmarks) -> str:
     3. DELETE: Tất cả 4 ngón trỏ/giữa/áp út/út co (CLOSED - Nắm tay).
     4. MODE: Ngón trỏ & ngón giữa duỗi (OPEN), ngón áp út & út co (CLOSED - V-Sign).
     """
-    # 8: Index tip, 6: Index PIP
-    # 12: Middle tip, 10: Middle PIP
-    # 16: Ring tip, 14: Ring PIP
-    # 20: Pinky tip, 18: Pinky PIP
     index_open = hand_landmarks[8].y < hand_landmarks[6].y
     middle_open = hand_landmarks[12].y < hand_landmarks[10].y
     ring_open = hand_landmarks[16].y < hand_landmarks[14].y
@@ -139,4 +141,3 @@ class HandTracker:
         stable_gesture = self.stabilizer.update(raw_gesture)
                     
         return frame, stable_gesture, fingertip_pos
-
