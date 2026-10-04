@@ -115,24 +115,28 @@ class HandTracker:
             for hand_landmarks in results.hand_landmarks:
                 h, w, _ = frame.shape
                 
-                # Vẽ các đường nối skeleton
+                # 1. Anti-aliased hand skeleton connections
                 for connection in HAND_CONNECTIONS:
                     pt1 = hand_landmarks[connection[0]]
                     pt2 = hand_landmarks[connection[1]]
                     x1, y1 = int(pt1.x * w), int(pt1.y * h)
                     x2, y2 = int(pt2.x * w), int(pt2.y * h)
-                    cv2.line(frame, (x1, y1), (x2, y2), (255, 255, 255), 2)
+                    cv2.line(frame, (x1, y1), (x2, y2), (235, 235, 235), 2, cv2.LINE_AA)
                 
-                # Vẽ các điểm landmark
+                # 2. Anti-aliased landmark joints
                 for landmark in hand_landmarks:
                     x = int(landmark.x * w)
                     y = int(landmark.y * h)
-                    cv2.circle(frame, (x, y), 3, (0, 0, 255), -1)
+                    cv2.circle(frame, (x, y), 3, (255, 200, 0), -1, cv2.LINE_AA)
                 
-                # Điểm 8 là đầu ngón trỏ
+                # 3. Index Fingertip #8 (Primary Air-Writing Pointer)
                 lm8 = hand_landmarks[8]
                 px8, py8 = int(lm8.x * w), int(lm8.y * h)
                 fingertip_pos = (px8, py8)
+
+                # Glowing target marker on index fingertip
+                cv2.circle(frame, (px8, py8), 10, (0, 255, 255), 2, cv2.LINE_AA)
+                cv2.circle(frame, (px8, py8), 4, (0, 0, 255), -1, cv2.LINE_AA)
                 
                 # Phân loại gesture thô từ landmarks
                 raw_gesture = classify_hand_gesture(hand_landmarks)
@@ -141,3 +145,4 @@ class HandTracker:
         stable_gesture = self.stabilizer.update(raw_gesture)
                     
         return frame, stable_gesture, fingertip_pos
+

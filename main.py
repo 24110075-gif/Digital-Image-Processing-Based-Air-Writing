@@ -8,6 +8,7 @@ from tracking.webcam import Webcam
 from tracking.hand_tracker import HandTracker
 from trajectory.trajectory_manager import TrajectoryManager
 from reconstruction.handwriting import HandwritingCanvas
+from reconstruction.ui_dashboard import DashboardUI
 from recognition.classifier import CharacterClassifier
 import numpy as np
 
@@ -95,6 +96,8 @@ def main():
             thickness=config.DRAWING_THICKNESS,
         )
 
+        dashboard_ui = DashboardUI(width=1280, height=720)
+
         # CNN Classifier (load once)
         classifier = None
         try:
@@ -170,12 +173,7 @@ def main():
                 pending_resume_ctr = 0
 
             # ============================================================
-            #  8. GESTURE CONTROL LOGIC
-            #
-            #  WRITING gesture  -> WRITING state  -> collect trajectory
-            #  Gesture changes  -> PENDING (start timer, no sleep)
-            #  After PENDING_DURATION s -> RECOGNIZING -> CNN -> IDLE
-            #  During PENDING, if WRITING gesture returns -> back to WRITING
+            #  GESTURE CONTROL LOGIC
             # ============================================================
 
             # MODE: toggle LETTER / NUMBER
@@ -185,7 +183,6 @@ def main():
                 print(f"[MODE] {current_mode}")
 
             # SPACE: must hold gesture for SPACE_HOLD_FRAMES consecutive frames (~0.5s)
-            # This prevents accidental spaces when index + pinky briefly align during writing
             elif stable_gesture == "SPACE" and space_cooldown == 0:
                 space_hold_ctr += 1
                 if space_hold_ctr >= config.SPACE_HOLD_FRAMES:
@@ -199,7 +196,6 @@ def main():
                     print("[GESTURE] SPACE")
 
             # DELETE: must hold fist gesture for DELETE_HOLD_FRAMES consecutive frames (~0.5s)
-            # This prevents accidental deletion when fingers briefly close while pulling hand away
             elif stable_gesture == "DELETE" and delete_cooldown == 0:
                 delete_hold_ctr += 1
                 if delete_hold_ctr >= config.DELETE_HOLD_FRAMES:
@@ -226,7 +222,6 @@ def main():
 
                 elif writing_state == STATE_PENDING:
                     # Require several consecutive WRITING frames to resume from PENDING
-                    # This prevents gesture flicker during hand withdrawal from resetting CNN timer
                     pending_resume_ctr += 1
                     if pending_resume_ctr >= config.GESTURE_STABILIZATION_FRAMES:
                         writing_state = STATE_WRITING
@@ -236,7 +231,7 @@ def main():
                 # Always collect trajectory while in WRITING state
                 if writing_state == STATE_WRITING:
                     if mapped_fingertip:
-                        cv2.circle(frame, mapped_fingertip, 8, (0, 0, 255), cv2.FILLED)
+                        cv2.circle(frame, mapped_fingertip, 6, (0, 0, 255), cv2.FILLED, cv2.LINE_AA)
                     trajectory_mgr.add_point(mapped_fingertip)
 
             # Other gestures (IDLE, NO_HAND): start PENDING if we just left WRITING
@@ -249,7 +244,7 @@ def main():
                     print("[WRITING] Stopped -> PENDING ({:.1f}s)".format(config.PENDING_DURATION))
 
                 if mapped_fingertip:
-                    cv2.circle(frame, mapped_fingertip, 8, (255, 0, 0), cv2.FILLED)
+                    cv2.circle(frame, mapped_fingertip, 6, (255, 0, 0), cv2.FILLED, cv2.LINE_AA)
 
             # Check if PENDING timer has expired (non-blocking, checked every frame)
             if writing_state == STATE_PENDING and pending_start is not None:
@@ -264,7 +259,6 @@ def main():
 
                 if classifier is not None and total_pts >= config.MIN_TRAJECTORY_POINTS:
                     smoothed_strokes = trajectory_mgr.get_smoothed_strokes()
-                    print(f"[DEBUG] smoothed_strokes count={len(smoothed_strokes)}, points per stroke={[len(s) for s in smoothed_strokes]}")
                     canvas_mgr.update_canvas(smoothed_strokes)
 
                     # Render trajectory sang anh 64x64 bang render_trajectory_to_64x64 (DIP Pipeline)
@@ -275,7 +269,6 @@ def main():
                         line_thickness=3
                     )
                     non_zero = cv2.countNonZero(img_64) if img_64 is not None else 0
-                    print(f"[DEBUG] img_64 shape={img_64.shape if img_64 is not None else 'None'}, non_zero_pixels={non_zero}")
 
                     char, conf = classifier.predict(
                         img_64,
@@ -308,59 +301,36 @@ def main():
                 prev_log_state = writing_state
 
             # ============================================================
-            #  9. TRAJECTORY -> CANVAS UPDATE
+            #  TRAJECTORY -> CANVAS & FRAME RENDER
             # ============================================================
             smoothed_strokes = trajectory_mgr.get_smoothed_strokes()
             canvas_mgr.update_canvas(smoothed_strokes)
             current_canvas = canvas_mgr.get_canvas()
 
-            # Preview trajectory on camera frame (cyan)
+            # Preview real-time trajectory on camera frame (smooth anti-aliased neon cyan)
             for stroke in smoothed_strokes:
                 for i in range(1, len(stroke)):
-                    cv2.line(frame, stroke[i - 1], stroke[i], (0, 255, 255), 3)
+                    cv2.line(frame, stroke[i - 1], stroke[i], (255, 255, 0), 3, cv2.LINE_AA)
 
             # ============================================================
-            #  10. HUD / UI Overlay
+            #  DUAL-PANEL DASHBOARD UI RENDERING
             # ============================================================
-            gesture_colors = {
-                "WRITING":  (0, 255, 0),
-                "SPACE":    (255, 255, 0),
-                "DELETE":   (0, 0, 255),
-                "MODE":     (255, 165, 0),
-                "IDLE":     (180, 180, 180),
-                "NO_HAND":  (100, 100, 100),
-            }
-            gesture_color = gesture_colors.get(stable_gesture, (255, 255, 255))
+            master_dashboard = dashboard_ui.create_dashboard(
+                camera_frame=frame,
+                canvas_img=current_canvas,
+                stable_gesture=stable_gesture,
+                writing_state=writing_state,
+                current_mode=current_mode,
+                recognized_text=recognized_text,
+                last_recognized_char=last_recognized_char,
+                last_confidence=last_confidence,
+                pending_start=pending_start,
+                pending_duration=config.PENDING_DURATION,
+                show_cnn_debug=show_cnn_debug
+            )
 
-            cv2.putText(frame, f"Gesture: {stable_gesture}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, gesture_color, 2)
-            cv2.putText(frame, f"State:   {writing_state}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.putText(frame, f"Mode:    {current_mode}", (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2)
-
-            # Recognized text display
-            if recognized_text:
-                cv2.putText(frame, f"Text: {recognized_text}", (10, 155),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
-            if last_recognized_char is not None:
-                cv2.putText(frame, f"Last: {last_recognized_char} ({last_confidence:.1f}%)", (10, 185),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
-
-            # PENDING countdown progress bar (orange)
-            if writing_state == STATE_PENDING and pending_start is not None:
-                elapsed = time.time() - pending_start
-                remaining = max(0.0, config.PENDING_DURATION - elapsed)
-                bar_w = int(min(1.0, elapsed / config.PENDING_DURATION) * 200)
-                cv2.rectangle(frame, (10, 225), (210, 242), (60, 60, 60), cv2.FILLED)
-                cv2.rectangle(frame, (10, 225), (10 + bar_w, 242), (0, 165, 255), cv2.FILLED)
-                cv2.rectangle(frame, (10, 225), (210, 242), (0, 165, 255), 1)
-                cv2.putText(frame, f"Pending: {remaining:.1f}s", (10, 220),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-
-            # Display windows
-            cv2.imshow("Air-Writing System (Main View)", frame)
-            cv2.imshow("Handwriting Canvas (Result)", current_canvas)
+            # Display Master Dual-Panel Dashboard Window
+            cv2.imshow("Air-Writing System (Dual-Panel Dashboard)", master_dashboard)
 
             if show_cnn_debug and classifier is not None:
                 smoothed_strokes = trajectory_mgr.get_smoothed_strokes()

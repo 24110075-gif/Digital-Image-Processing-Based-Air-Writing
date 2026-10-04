@@ -60,6 +60,7 @@ class Webcam:
             return False
 
         # Apply camera properties if provided
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Zero buffer delay for real-time tracking
         if self.width is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
         if self.height is not None:
@@ -68,6 +69,7 @@ class Webcam:
             self.cap.set(cv2.CAP_PROP_FPS, float(self.fps))
 
         return True
+
 
     def is_opened(self) -> bool:
         """Check if the camera capture device is currently opened."""
