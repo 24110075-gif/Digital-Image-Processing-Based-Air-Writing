@@ -231,7 +231,8 @@ def main():
                 # Always collect trajectory while in WRITING state
                 if writing_state == STATE_WRITING:
                     if mapped_fingertip:
-                        cv2.circle(frame, mapped_fingertip, 6, (0, 0, 255), cv2.FILLED, cv2.LINE_AA)
+                        pt_i = (int(round(mapped_fingertip[0])), int(round(mapped_fingertip[1])))
+                        cv2.circle(frame, pt_i, 6, (0, 0, 255), cv2.FILLED, cv2.LINE_AA)
                     trajectory_mgr.add_point(mapped_fingertip)
 
             # Other gestures (IDLE, NO_HAND): start PENDING if we just left WRITING
@@ -244,7 +245,9 @@ def main():
                     print("[WRITING] Stopped -> PENDING ({:.1f}s)".format(config.PENDING_DURATION))
 
                 if mapped_fingertip:
-                    cv2.circle(frame, mapped_fingertip, 6, (255, 0, 0), cv2.FILLED, cv2.LINE_AA)
+                    pt_i = (int(round(mapped_fingertip[0])), int(round(mapped_fingertip[1])))
+                    cv2.circle(frame, pt_i, 6, (255, 0, 0), cv2.FILLED, cv2.LINE_AA)
+
 
             # Check if PENDING timer has expired (non-blocking, checked every frame)
             if writing_state == STATE_PENDING and pending_start is not None:
@@ -310,7 +313,10 @@ def main():
             # Preview real-time trajectory on camera frame (smooth anti-aliased neon cyan)
             for stroke in smoothed_strokes:
                 for i in range(1, len(stroke)):
-                    cv2.line(frame, stroke[i - 1], stroke[i], (255, 255, 0), 3, cv2.LINE_AA)
+                    pt1 = (int(round(float(stroke[i - 1][0]))), int(round(float(stroke[i - 1][1]))))
+                    pt2 = (int(round(float(stroke[i][0]))), int(round(float(stroke[i][1]))))
+                    cv2.line(frame, pt1, pt2, (255, 255, 0), 3, cv2.LINE_AA)
+
 
             # ============================================================
             #  DUAL-PANEL DASHBOARD UI RENDERING

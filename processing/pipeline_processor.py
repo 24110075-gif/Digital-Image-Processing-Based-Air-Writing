@@ -82,10 +82,13 @@ def render_trajectory_to_64x64(strokes, target_size=(64, 64), padding=6, line_th
     img_64 = np.zeros(target_size, dtype=np.uint8)
     for stroke in normalized_strokes:
         if len(stroke) == 1:
-            cv2.circle(img_64, stroke[0], line_thickness, 255, -1)
+            pt = (int(round(float(stroke[0][0]))), int(round(float(stroke[0][1]))))
+            cv2.circle(img_64, pt, line_thickness, 255, -1)
         else:
             for i in range(1, len(stroke)):
-                cv2.line(img_64, stroke[i - 1], stroke[i], 255, line_thickness, cv2.LINE_AA)
+                pt1 = (int(round(float(stroke[i - 1][0]))), int(round(float(stroke[i - 1][1]))))
+                pt2 = (int(round(float(stroke[i][0]))), int(round(float(stroke[i][1]))))
+                cv2.line(img_64, pt1, pt2, 255, line_thickness, cv2.LINE_AA)
 
     # 4. keep_main_group(): Loại bỏ các điểm rác / nét vẽ lạc ở xa
     img_64 = keep_main_group(img_64, kernel_size=(15, 15))

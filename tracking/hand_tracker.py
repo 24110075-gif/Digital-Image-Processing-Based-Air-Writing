@@ -129,14 +129,16 @@ class HandTracker:
                     y = int(landmark.y * h)
                     cv2.circle(frame, (x, y), 3, (255, 200, 0), -1, cv2.LINE_AA)
                 
-                # 3. Index Fingertip #8 (Primary Air-Writing Pointer)
+                # 3. Index Fingertip #8 (Sub-pixel float precision)
                 lm8 = hand_landmarks[8]
-                px8, py8 = int(lm8.x * w), int(lm8.y * h)
+                px8, py8 = float(lm8.x * w), float(lm8.y * h)
                 fingertip_pos = (px8, py8)
 
-                # Glowing target marker on index fingertip
-                cv2.circle(frame, (px8, py8), 10, (0, 255, 255), 2, cv2.LINE_AA)
-                cv2.circle(frame, (px8, py8), 4, (0, 0, 255), -1, cv2.LINE_AA)
+                # Glowing target marker on index fingertip (convert to int only for drawing)
+                px8_i, py8_i = int(round(px8)), int(round(py8))
+                cv2.circle(frame, (px8_i, py8_i), 10, (0, 255, 255), 2, cv2.LINE_AA)
+                cv2.circle(frame, (px8_i, py8_i), 4, (0, 0, 255), -1, cv2.LINE_AA)
+
                 
                 # Phân loại gesture thô từ landmarks
                 raw_gesture = classify_hand_gesture(hand_landmarks)

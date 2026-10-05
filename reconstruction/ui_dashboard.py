@@ -33,6 +33,11 @@ class DashboardUI:
         self.COLOR_PENDING = (0, 165, 255)    # Orange
         self.COLOR_RECOGNIZING = (255, 120, 0)# Deep Cyan
 
+        # Tối ưu: Pre-allocate mảng background template 1 lần
+        self.dashboard_template = np.full((self.height, self.width, 3), self.BG_DARK, dtype=np.uint8)
+        self._last_canvas_id = None
+        self._cached_canvas_preview = None
+
     def create_dashboard(
         self,
         camera_frame: np.ndarray,
@@ -49,8 +54,9 @@ class DashboardUI:
     ) -> np.ndarray:
         """Constructs and returns the full 1280x720 Dual-Panel Dashboard frame."""
         
-        # 1. Background Canvas (1280x720 Dark Slate)
-        dashboard = np.full((self.height, self.width, 3), self.BG_DARK, dtype=np.uint8)
+        # 1. Background Canvas (Fast copy từ pre-allocated template)
+        dashboard = self.dashboard_template.copy()
+
 
         # =========================================================================
         # LEFT PANEL: LIVE CAMERA STREAM (640x480 at x=20, y=110)
