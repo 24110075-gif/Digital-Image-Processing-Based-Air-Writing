@@ -50,13 +50,15 @@ class DashboardUI:
         last_confidence: float,
         pending_start: Optional[float],
         pending_duration: float = 1.0,
-        show_cnn_debug: bool = False
+        show_cnn_debug: bool = False,
+        collect_mode: bool = False,
+        target_char: str = "B",
+        custom_samples_count: int = 0
     ) -> np.ndarray:
         """Constructs and returns the full 1280x720 Dual-Panel Dashboard frame."""
         
         # 1. Background Canvas (Fast copy từ pre-allocated template)
         dashboard = self.dashboard_template.copy()
-
 
         # =========================================================================
         # LEFT PANEL: LIVE CAMERA STREAM (640x480 at x=20, y=110)
@@ -100,7 +102,10 @@ class DashboardUI:
         )
 
         # 5. Shortcuts & System Info Footer Card
-        self._draw_footer_card(dashboard, right_x, 635, 585, 70, show_cnn_debug)
+        self._draw_footer_card(
+            dashboard, right_x, 635, 585, 70, show_cnn_debug,
+            collect_mode, target_char, custom_samples_count
+        )
 
         return dashboard
 
@@ -212,16 +217,24 @@ class DashboardUI:
             cv2.rectangle(img, (bar_x, bar_y), (bar_x + bar_w, bar_y + 12), bar_color, -1)
             cv2.rectangle(img, (bar_x, bar_y), (bar_x + bar_max_w, bar_y + 12), (100, 100, 100), 1)
 
-    def _draw_footer_card(self, img: np.ndarray, x: int, y: int, w: int, h: int, show_debug: bool):
+    def _draw_footer_card(
+        self, img: np.ndarray, x: int, y: int, w: int, h: int, show_debug: bool,
+        collect_mode: bool = False, target_char: str = "B", custom_samples_count: int = 0
+    ):
         """Draws shortcut badges and footer information."""
         cv2.rectangle(img, (x, y), (x + w, y + h), self.CARD_BG, -1)
         cv2.rectangle(img, (x, y), (x + w, y + h), self.CARD_BORDER, 1, cv2.LINE_AA)
 
-        cv2.putText(img, "KEYBOARD SHORTCUTS:", (x + 15, y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_SECONDARY, 1, cv2.LINE_AA)
+        cv2.putText(img, "KEYBOARD SHORTCUTS:", (x + 15, y + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_SECONDARY, 1, cv2.LINE_AA)
 
-        # Badges
-        dbg_text = "[d] CNN Debug: ON" if show_debug else "[d] CNN Debug: OFF"
-        cv2.putText(img, dbg_text, (x + 15, y + 50), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255) if show_debug else (150, 150, 150), 1, cv2.LINE_AA)
-        cv2.putText(img, "[c] Clear Canvas", (x + 200, y + 50), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_PRIMARY, 1, cv2.LINE_AA)
-        cv2.putText(img, "[s] Save Image", (x + 360, y + 50), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_PRIMARY, 1, cv2.LINE_AA)
-        cv2.putText(img, "[q] Quit", (x + 490, y + 50), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1, cv2.LINE_AA)
+        # Line 1 Badges
+        cv2.putText(img, f"[t] Target: '{target_char}'", (x + 15, y + 44), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 230, 255), 1, cv2.LINE_AA)
+        cv2.putText(img, f"[r] Save Custom Sample", (x + 160, y + 44), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 100), 1, cv2.LINE_AA)
+        cv2.putText(img, f"Custom Samples: {custom_samples_count}", (x + 380, y + 44), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_SECONDARY, 1, cv2.LINE_AA)
+
+        # Line 2 Badges
+        dbg_text = "[d] Debug: ON" if show_debug else "[d] Debug: OFF"
+        cv2.putText(img, dbg_text, (x + 15, y + 62), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255) if show_debug else (150, 150, 150), 1, cv2.LINE_AA)
+        cv2.putText(img, "[c] Clear", (x + 160, y + 62), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_PRIMARY, 1, cv2.LINE_AA)
+        cv2.putText(img, "[s] Save Image", (x + 280, y + 62), cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_PRIMARY, 1, cv2.LINE_AA)
+        cv2.putText(img, "[q] Quit", (x + 450, y + 62), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1, cv2.LINE_AA)
